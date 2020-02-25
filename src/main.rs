@@ -10,7 +10,7 @@ type Row = HashMap<String, String>;
 
 fn parse() -> Result<(), Box<dyn Error>> {
 	// TODO: get minimum wage from config file
-	let minwage = 9.45;
+	let minwage = 9.65;
 	// Create a vector to hold the employee data we care about
 	let mut tipped_shifts = Vec::<Row>::new();
 	
