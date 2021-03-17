@@ -18,44 +18,44 @@ fn parse() -> Result<(), Box<dyn Error>> {
 	let file_path = get_first_arg()?;
 	// Open the CSV
 	let file = File::open(&file_path)?;
-    // Build the CSV reader using our file
-    let mut rdr = csv::Reader::from_reader(file);
+	// Build the CSV reader using our file
+	let mut rdr = csv::Reader::from_reader(file);
 	// Loop through rows
-    for result in rdr.deserialize() {
+	for result in rdr.deserialize() {
 		// Build another HashMap for storing the data we care about
 		let mut work_data = Row::new();
-		
+
 		// Map row data to column headers
 		let record: Row = result?;
 		// Reformat full name
 		let name: Vec<&str> = record["Employee"].split(", ").collect();
 		work_data.insert(String::from("Full Name"), name[1].to_owned() + " " + name[0]);
-		
+
 		// Find date worked
 		let date: Vec<&str> = record["In Date"].split(" ").collect();
 		// TODO: Check for dupes
 		work_data.insert(String::from("Date"), date[0].to_string());
-		
+
 		// Find hours worked
 		let hours: f32 = record["Payable Hours"].parse().unwrap();
 		work_data.insert(String::from("Hours Worked"), hours.to_string());
-		
+
 		// Find wage earned
 		let pay: f32 = record["Total Pay"].parse().unwrap();
 		work_data.insert(String::from("Wages Paid"), pay.to_string());
-		
+
 		// Find tips earned
 		let tips: f32 = record["Total Tips"].parse().unwrap();
 		work_data.insert(String::from("Tips"), tips.to_string());
-		
+
 		// Is this a tipped wage shift?
 		let hourlywage: f32 = record["Wage"].parse().unwrap();
 		if hourlywage < minwage {
 			// It's a tipped shift!
 			tipped_shifts.push(work_data);
 		}
-    }
-	
+	}
+
 	// Now let's loop through the shifts we care about, and combine them by date
 	let mut daywork = HashMap::<(String, String), (f32, f32, f32)>::new();
 	for shift in &tipped_shifts {
@@ -76,15 +76,62 @@ fn parse() -> Result<(), Box<dyn Error>> {
 			daywork.insert(whowhen, timewagetip);
 		}
 	}
+
+	// And again for weekly
+	let mut weekworkcombined = HashMap::<String, (f32, f32, f32)>::new();
+	for shift in &tipped_shifts {
+		let who = shift["Full Name"].to_owned();
+		let time: f32 = shift["Hours Worked"].parse().unwrap();
+		let wage: f32 = shift["Wages Paid"].parse().unwrap();
+		let tip: f32 = shift["Tips"].parse().unwrap();
+		let timewagetip = (time, wage, tip);
+		// Do we already have a shift for this employee on this date?
+		if weekworkcombined.contains_key(&who) {
+			// Add the shifts together
+			let oldtuple = weekworkcombined[&who];
+			let newtuple = (oldtuple.0+time, oldtuple.1+wage, oldtuple.2+tip);
+			weekworkcombined.insert(who, newtuple);
+		} else {
+			// Add the new shift
+			weekworkcombined.insert(who, timewagetip);
+		}
+	}
+
+	// Calculate tips by week
+	let mut weeklywork = HashMap::<String, (f32, f32, f32, f32)>::new();
+	for (who, timewagetip) in &weekworkcombined {
+		let time: f32 = timewagetip.0;
+		let wage: f32 = timewagetip.1;
+		let tip: f32 = timewagetip.2;
+
+		let minpay: f32 = time * minwage;
+		let actualpay: f32 = wage + tip;
+		let difference2: f32 = &minpay - &actualpay;
+		// If the employee is making more than minimum wage, we don't care
+		let diffcare = difference2.max(0.00);
+
+		let timewagetipdiff = (time, wage, tip, diffcare);
+		println!("{:?}", timewagetipdiff);
+		// Do we already have a shift for this employee?
+		if weeklywork.contains_key(who) {
+			// Add the shifts together
+			let oldtuple = weeklywork[&who.to_string()];
+			let newtuple = (oldtuple.0+time, oldtuple.1+wage, oldtuple.2+tip, oldtuple.3+diffcare);
+			weeklywork.insert(who.to_string(), newtuple);
+		} else {
+			// Add the new shift
+			weeklywork.insert(who.to_string(), timewagetipdiff);
+		}
+	}
 	
 	// And reiterate to combine by employee
-	let mut totalwork = HashMap::<String, (f32, f32, f32, f32)>::new();
+	/*let mut totalwork = HashMap::<String, (f32, f32, f32, f32)>::new();
 	for (whowhen, timewagetip) in &daywork {
 		let who = whowhen.0.to_string();
 		let time: f32 = timewagetip.0;
 		let wage: f32 = timewagetip.1;
 		let tip: f32 = timewagetip.2;
-		
+
 		let minpay: f32 = time * minwage;
 		let actualpay: f32 = wage + tip;
 		let difference2: f32 = &minpay - &actualpay;
@@ -103,8 +150,8 @@ fn parse() -> Result<(), Box<dyn Error>> {
 			// Add the new shift
 			totalwork.insert(who.to_string(), timewagetipdiff);
 		}
-	}
-	
+	}*/
+
 	// Nasty path work
 	let path = &file_path.to_str().unwrap();
 	let mut path_split: Vec<&str> = path.split("/").collect(); // TODO: Linux compatability
@@ -123,25 +170,32 @@ fn parse() -> Result<(), Box<dyn Error>> {
 		file_folder += slice;
 		file_folder += "//"; // TODO: Linux compatability
 	}
-	
+
 	// Build path for daily report
 	let mut daily_path = file_folder.to_string();
 	daily_path += &file_name;
 	daily_path += "-daily.";
 	daily_path += &file_extension;
 	println!("{}", daily_path);
-	
+
+	// Build path for weekly report
+	let mut weekly_path = file_folder.to_string();
+	weekly_path += &file_name;
+	weekly_path += "-weekly.";
+	weekly_path += &file_extension;
+	println!("{}", weekly_path);
+
 	// Build path for total report
-	let mut total_path = file_folder.to_string();
+	/*let mut total_path = file_folder.to_string();
 	total_path += &file_name;
 	total_path += "-total.";
 	total_path += &file_extension;
-	println!("{}", total_path);
-	
+	println!("{}", total_path);*/
+
 	// Begin export to CSV
 	let mut wtr = csv::Writer::from_path(daily_path)?;
 	wtr.write_record(&["Name", "Date", "Hours Worked", "Wages Paid", "Tips Made", "Difference Needed", "Difference"])?;
-	
+
 	// Now, let's finally loop through the dates and calculate wages for daily
 	for (whowhen, timewagetip) in &daywork {
 		let minpay = &timewagetip.0 * minwage;
@@ -157,35 +211,44 @@ fn parse() -> Result<(), Box<dyn Error>> {
 		} else {
 			wtr.write_record(&[&whowhen.0.to_string(), &whowhen.1.to_string(), &format!("{:.2}", &timewagetip.0), &format!("{:.2}", timewagetip.1), &format!("{:.2}", &timewagetip.2), "NO", "0"])?;
 		}
-		
 	}
 	wtr.flush()?;
-	
-	// now repeat for total
-	let mut wtr = csv::Writer::from_path(total_path)?;
+
+	// Repeat for weekly
+	let mut wtr = csv::Writer::from_path(weekly_path)?;
 	wtr.write_record(&["Name", "Hours Worked", "Wages Paid", "Tips Made", "Difference"])?;
-	
+
+	// TODO: Display warning if tipped employee worked over 40 hours
+	for (who, timewagetip) in &weeklywork {
+		wtr.write_record(&[who, &format!("{:.2}", &timewagetip.0), &format!("{:.2}", &timewagetip.1), &format!("{:.2}", &timewagetip.2), &format!("{:.2}", &timewagetip.3)])?;
+	}
+	wtr.flush()?;
+
+	// now repeat for total
+	/*let mut wtr = csv::Writer::from_path(total_path)?;
+	wtr.write_record(&["Name", "Hours Worked", "Wages Paid", "Tips Made", "Difference"])?;
+
 	// TODO: Display warning if tipped employee worked over 40 hours
 	for (who, timewagetip) in &totalwork {
 		wtr.write_record(&[&who.to_string(), &format!("{:.2}", &timewagetip.0), &format!("{:.2}", &timewagetip.1), &format!("{:.2}", &timewagetip.2), &format!("{:.2}", &timewagetip.3)])?;
 	}
-	wtr.flush()?;
-	
-    Ok(())
+	wtr.flush()?;*/
+
+	Ok(())
 }
 
 /// Returns the first positional argument sent to this process. If there are no
 /// positional arguments, then this returns an error.
 fn get_first_arg() -> Result<OsString, Box<Error>> {
-    match env::args_os().nth(1) {
-        None => Err(From::from("expected 1 argument, but got none")),
-        Some(file_path) => Ok(file_path),
-    }
+	match env::args_os().nth(1) {
+		None => Err(From::from("expected 1 argument, but got none")),
+		Some(file_path) => Ok(file_path),
+	}
 }
 
 fn main() {
-    if let Err(err) = parse() {
-        println!("error: {}", err);
-        process::exit(1);
-    }
+	if let Err(err) = parse() {
+		println!("error: {}", err);
+		process::exit(1);
+	}
 }
